@@ -11,20 +11,23 @@ from datetime import datetime, timezone
 OUTPUT_FOLDER = "v2/currencies"
 REQUEST_TIMEOUT = 15
 
-# Fawaz Ahmed Currency API
-FAWAZ_FIAT_URL = (
+# --- FIAT SOURCES (priority order) ---
+# 1) moneyconvert  ~ every 5 min
+MONEYCONVERT_URL = "https://cdn.moneyconvert.net/api/latest.json"
+
+# 2) exchangerate.fun  ~ hourly
+EXCHANGERATE_FUN_URL = "https://api.exchangerate.fun/latest"
+
+# 3) Fawaz (last fallback only – daily)
+FAWAZ_URL = (
     "https://cdn.jsdelivr.net/npm/"
     "@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
 )
+FAWAZ_BACKUP_URL = "https://latest.currency-api.pages.dev/v1/currencies/usd.json"
 
-# Backup Fawaz endpoint
-FAWAZ_BACKUP_URL = (
-    "https://latest.currency-api.pages.dev/v1/currencies/usd.json"
-)
-
+# --- CRYPTO ---
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
-
 
 CRYPTO_MAPPING = {
     "bitcoin": "btc",
@@ -36,9 +39,8 @@ CRYPTO_MAPPING = {
     "cardano": "ada",
     "dogecoin": "doge",
     "tron": "trx",
-    "chainlink": "link"
+    "chainlink": "link",
 }
-
 
 BINANCE_MAPPING = {
     "BTCUSDT": "btc",
@@ -49,383 +51,198 @@ BINANCE_MAPPING = {
     "ADAUSDT": "ada",
     "DOGEUSDT": "doge",
     "TRXUSDT": "trx",
-    "LINKUSDT": "link"
+    "LINKUSDT": "link",
 }
 
 
-# ============================================================
-# HTTP SESSION
-# ============================================================
-
 session = requests.Session()
-
 session.headers.update({
-    "User-Agent": "Tayyab-V2-Currency-Updater/2.0",
-    "Accept": "application/json"
+    "User-Agent": "Tayyab-V2-Currency-Updater/3.0",
+    "Accept": "application/json",
 })
 
 
 # ============================================================
-# FIAT - FAWAZ PRIMARY
+# FIAT SOURCES
 # ============================================================
 
-def fetch_fiat_primary():
+def _normalize_usd_rates(rates_dict):
+    """USD base rates dict → lowercase keys, positive floats only."""
+    result = {"usd": 1.0}
+    if not isinstance(rates_dict, dict):
+        return result
 
-    print("Fetching Fiat from Fawaz Ahmed API...")
-
-    response = session.get(
-        FAWAZ_FIAT_URL,
-        timeout=REQUEST_TIMEOUT
-    )
-
-    response.raise_for_status()
-
-    data = response.json()
-
-    rates = data.get("usd")
-
-    if not isinstance(rates, dict) or not rates:
-        raise ValueError(
-            "Fawaz API returned empty USD rates."
-        )
-
-    result = {
-        "usd": 1.0
-    }
-
-    for currency, rate in rates.items():
-
+    for currency, rate in rates_dict.items():
         try:
             rate = float(rate)
         except (TypeError, ValueError):
             continue
-
         if rate > 0:
-            result[currency.lower()] = rate
-
-    if len(result) < 2:
-        raise ValueError(
-            "Fawaz API returned insufficient currency data."
-        )
+            result[str(currency).lower()] = rate
 
     return result
 
 
-# ============================================================
-# FIAT - FAWAZ BACKUP
-# ============================================================
+def fetch_fiat_moneyconvert():
+    print("Fetching Fiat from moneyconvert.net...")
+    r = session.get(MONEYCONVERT_URL, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
 
-def fetch_fiat_backup():
+    # Expected: { "base": "USD", "rates": { "EUR": 0.92, ... } }
+    rates = data.get("rates")
+    if not rates:
+        raise ValueError("moneyconvert: empty rates")
 
-    print("Fetching Fiat from Fawaz Backup API...")
+    result = _normalize_usd_rates(rates)
+    if len(result) < 10:
+        raise ValueError("moneyconvert: too few currencies")
+    return result, "moneyconvert.net"
 
-    response = session.get(
-        FAWAZ_BACKUP_URL,
-        timeout=REQUEST_TIMEOUT
-    )
 
-    response.raise_for_status()
+def fetch_fiat_exchangerate_fun():
+    print("Fetching Fiat from exchangerate.fun...")
+    r = session.get(EXCHANGERATE_FUN_URL, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
 
-    data = response.json()
+    rates = data.get("rates")
+    if not rates:
+        raise ValueError("exchangerate.fun: empty rates")
 
-    rates = data.get("usd")
+    result = _normalize_usd_rates(rates)
+    if len(result) < 10:
+        raise ValueError("exchangerate.fun: too few currencies")
+    return result, "exchangerate.fun"
 
-    if not isinstance(rates, dict) or not rates:
-        raise ValueError(
-            "Fawaz Backup API returned empty USD rates."
-        )
 
-    result = {
-        "usd": 1.0
-    }
-
-    for currency, rate in rates.items():
-
+def fetch_fiat_fawaz():
+    print("Fetching Fiat from Fawaz (fallback)...")
+    for url in (FAWAZ_URL, FAWAZ_BACKUP_URL):
         try:
-            rate = float(rate)
-        except (TypeError, ValueError):
-            continue
+            r = session.get(url, timeout=REQUEST_TIMEOUT)
+            r.raise_for_status()
+            data = r.json()
+            rates = data.get("usd")
+            if not rates:
+                continue
+            result = _normalize_usd_rates(rates)
+            if len(result) >= 10:
+                return result, "fawazahmed0/currency-api"
+        except Exception as e:
+            print(f"  Fawaz URL failed: {e}")
+    raise ValueError("Fawaz both endpoints failed")
 
-        if rate > 0:
-            result[currency.lower()] = rate
-
-    if len(result) < 2:
-        raise ValueError(
-            "Fawaz Backup API returned insufficient data."
-        )
-
-    return result
-
-
-# ============================================================
-# FIAT CONTROLLER
-# ============================================================
 
 def fetch_fiat_data():
-
-    try:
-
-        rates = fetch_fiat_primary()
-
-        print(
-            f"Fawaz Fiat successful: {len(rates)} currencies."
-        )
-
-        return rates
-
-    except Exception as error:
-
-        print(
-            f"Fawaz Primary failed: {error}"
-        )
-
-
-    try:
-
-        rates = fetch_fiat_backup()
-
-        print(
-            f"Fawaz Backup successful: {len(rates)} currencies."
-        )
-
-        return rates
-
-    except Exception as error:
-
-        print(
-            f"Fawaz Backup failed: {error}"
-        )
-
-    return None
+    """Try sources in order. Return (rates_dict, source_name) or (None, None)."""
+    sources = [
+        fetch_fiat_moneyconvert,
+        fetch_fiat_exchangerate_fun,
+        fetch_fiat_fawaz,
+    ]
+    for fn in sources:
+        try:
+            rates, source = fn()
+            print(f"  OK → {source}: {len(rates)} currencies")
+            return rates, source
+        except Exception as e:
+            print(f"  Failed: {e}")
+    return None, None
 
 
 # ============================================================
-# CRYPTO - COINGECKO PRIMARY
+# CRYPTO
 # ============================================================
 
 def fetch_crypto_coingecko():
-
     print("Fetching Crypto from CoinGecko...")
-
-    crypto_ids = ",".join(
-        CRYPTO_MAPPING.keys()
-    )
-
     params = {
-        "ids": crypto_ids,
-        "vs_currencies": "usd"
+        "ids": ",".join(CRYPTO_MAPPING.keys()),
+        "vs_currencies": "usd",
     }
+    r = session.get(COINGECKO_URL, params=params, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
 
-    response = session.get(
-        COINGECKO_URL,
-        params=params,
-        timeout=REQUEST_TIMEOUT
-    )
-
-    response.raise_for_status()
-
-    data = response.json()
-
-    if not isinstance(data, dict) or not data:
-        raise ValueError(
-            "CoinGecko returned empty data."
-        )
-
-    result = {
-        "usdt": 1.0
-    }
-
-    for gecko_id, short_name in CRYPTO_MAPPING.items():
-
+    result = {"usdt": 1.0}
+    for gecko_id, short in CRYPTO_MAPPING.items():
         coin = data.get(gecko_id)
-
         if not isinstance(coin, dict):
-            print(
-                f"CoinGecko missing: {gecko_id}"
-            )
             continue
-
-        usd_price = coin.get("usd")
-
         try:
-            usd_price = float(usd_price)
+            usd_price = float(coin.get("usd"))
         except (TypeError, ValueError):
             continue
-
-        if usd_price <= 0:
-            continue
-
-        result[short_name] = round(
-            1.0 / usd_price,
-            12
-        )
+        if usd_price > 0:
+            # Store as: how many units of crypto = 1 USD
+            result[short] = round(1.0 / usd_price, 12)
 
     if len(result) <= 1:
-        raise ValueError(
-            "CoinGecko returned no usable crypto prices."
-        )
+        raise ValueError("CoinGecko: no usable crypto")
+    return result, "coingecko"
 
-    return result
-
-
-# ============================================================
-# CRYPTO - BINANCE BACKUP
-# ============================================================
 
 def fetch_crypto_binance():
-
     print("Fetching Crypto from Binance...")
-
-    result = {
-        "usdt": 1.0
-    }
-
-    successful = 0
-
-    for symbol, short_name in BINANCE_MAPPING.items():
-
+    result = {"usdt": 1.0}
+    ok = 0
+    for symbol, short in BINANCE_MAPPING.items():
         try:
-
-            response = session.get(
+            r = session.get(
                 BINANCE_URL,
-                params={
-                    "symbol": symbol
-                },
-                timeout=REQUEST_TIMEOUT
+                params={"symbol": symbol},
+                timeout=REQUEST_TIMEOUT,
             )
+            r.raise_for_status()
+            price = float(r.json().get("price"))
+            if price > 0:
+                result[short] = round(1.0 / price, 12)
+                ok += 1
+        except Exception as e:
+            print(f"  Binance {symbol} failed: {e}")
 
-            response.raise_for_status()
+    if ok == 0:
+        raise ValueError("Binance: no usable crypto")
+    return result, "binance"
 
-            data = response.json()
-
-            price = data.get("price")
-
-            try:
-                price = float(price)
-            except (TypeError, ValueError):
-                continue
-
-            if price <= 0:
-                continue
-
-            result[short_name] = round(
-                1.0 / price,
-                12
-            )
-
-            successful += 1
-
-        except Exception as error:
-
-            print(
-                f"Binance failed for {symbol}: {error}"
-            )
-
-    if successful == 0:
-        raise ValueError(
-            "Binance returned no usable crypto prices."
-        )
-
-    return result
-
-
-# ============================================================
-# CRYPTO CONTROLLER
-# ============================================================
 
 def fetch_crypto_data():
-
-    try:
-
-        rates = fetch_crypto_coingecko()
-
-        print(
-            f"CoinGecko successful: {len(rates)} currencies."
-        )
-
-        return rates
-
-    except Exception as error:
-
-        print(
-            f"CoinGecko failed: {error}"
-        )
-
-
-    try:
-
-        rates = fetch_crypto_binance()
-
-        print(
-            f"Binance successful: {len(rates)} currencies."
-        )
-
-        return rates
-
-    except Exception as error:
-
-        print(
-            f"Binance failed: {error}"
-        )
-
-    return {}
+    for fn in (fetch_crypto_coingecko, fetch_crypto_binance):
+        try:
+            rates, source = fn()
+            print(f"  OK → {source}: {len(rates)} currencies")
+            return rates, source
+        except Exception as e:
+            print(f"  Failed: {e}")
+    return {}, "none"
 
 
 # ============================================================
-# VALIDATE RATES
+# HELPERS
 # ============================================================
 
 def validate_rates(rates):
-
-    if not isinstance(rates, dict):
-        return {}
-
     clean = {}
-
+    if not isinstance(rates, dict):
+        return clean
     for currency, rate in rates.items():
-
         try:
             rate = float(rate)
         except (TypeError, ValueError):
             continue
-
-        if rate <= 0:
-            continue
-
-        clean[currency.lower()] = rate
-
+        if rate > 0:
+            clean[str(currency).lower()] = rate
     clean["usd"] = 1.0
-
     return clean
 
 
-# ============================================================
-# SAFE JSON WRITE
-# ============================================================
-
 def write_json_safely(filepath, data):
-
-    temp_filepath = filepath + ".tmp"
-
-    with open(
-        temp_filepath,
-        "w",
-        encoding="utf-8"
-    ) as file:
-
-        json.dump(
-            data,
-            file,
-            indent=4,
-            ensure_ascii=False
-        )
-
-        file.write("\n")
-
-    os.replace(
-        temp_filepath,
-        filepath
-    )
+    temp = filepath + ".tmp"
+    with open(temp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+        f.write("\n")
+    os.replace(temp, filepath)
 
 
 # ============================================================
@@ -433,170 +250,69 @@ def write_json_safely(filepath, data):
 # ============================================================
 
 def main():
-
     print("=" * 60)
-    print("TAYYAB V2 CURRENCY RATE UPDATER")
-    print("Powered by Fawaz Ahmed Currency API")
+    print("TAYYAB V3 CURRENCY RATE UPDATER")
+    print("Multi-source | More frequent than daily-only APIs")
     print("=" * 60)
 
-
-    # --------------------------------------------------------
-    # FIAT
-    # --------------------------------------------------------
-
-    fiat_rates = fetch_fiat_data()
-
+    # ---- FIAT ----
+    fiat_rates, fiat_source = fetch_fiat_data()
     if not fiat_rates:
-
-        print()
-        print("CRITICAL ERROR")
-        print("Both Fawaz Fiat APIs failed.")
-        print("Existing data will NOT be modified.")
-        print()
-
+        print("\nCRITICAL: All fiat sources failed. Existing files NOT changed.\n")
         return
 
+    fiat_rates = validate_rates(fiat_rates)
 
-    fiat_rates = validate_rates(
-        fiat_rates
-    )
+    # ---- CRYPTO ----
+    crypto_rates, crypto_source = fetch_crypto_data()
+    crypto_rates = validate_rates(crypto_rates)
 
+    # ---- COMBINE ----
+    # Crypto keys overwrite same keys from fiat if present
+    all_rates = {**fiat_rates, **crypto_rates}
 
-    if "usd" not in fiat_rates:
+    now = datetime.now(timezone.utc)
+    current_date = now.strftime("%Y-%m-%d")
+    current_time = now.strftime("%Y-%m-%d %H:%M UTC")
 
-        print(
-            "CRITICAL ERROR: USD rate missing."
-        )
-
-        return
-
-
-    # --------------------------------------------------------
-    # CRYPTO
-    # --------------------------------------------------------
-
-    crypto_rates = fetch_crypto_data()
-
-    crypto_rates = validate_rates(
-        crypto_rates
-    )
-
-
-    # --------------------------------------------------------
-    # COMBINE
-    # --------------------------------------------------------
-
-    all_rates = {
-        **fiat_rates,
-        **crypto_rates
-    }
-
-
-    # --------------------------------------------------------
-    # TIME
-    # --------------------------------------------------------
-
-    now = datetime.now(
-        timezone.utc
-    )
-
-    current_date = now.strftime(
-        "%Y-%m-%d"
-    )
-
-    current_time = now.strftime(
-        "%Y-%m-%d %H:%M UTC"
-    )
-
-
-    # --------------------------------------------------------
-    # OUTPUT DIRECTORY
-    # --------------------------------------------------------
-
-    os.makedirs(
-        OUTPUT_FOLDER,
-        exist_ok=True
-    )
-
-
-    # --------------------------------------------------------
-    # GENERATE FILES
-    # --------------------------------------------------------
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
     generated = 0
-
     for base_currency, base_rate in all_rates.items():
-
         if base_rate <= 0:
             continue
 
-
-        converted_rates = {}
-
-
-        for target_currency, target_rate in all_rates.items():
-
+        converted = {}
+        for target, target_rate in all_rates.items():
             if target_rate <= 0:
                 continue
-
-
-            converted_rates[target_currency] = round(
-                target_rate / base_rate,
-                12
-            )
-
+            converted[target] = round(target_rate / base_rate, 12)
 
         api_response = {
             "date": current_date,
             "last_updated": current_time,
-            base_currency: converted_rates
+            "sources": {
+                "fiat": fiat_source,
+                "crypto": crypto_source,
+            },
+            base_currency: converted,
         }
 
-
-        filepath = os.path.join(
-            OUTPUT_FOLDER,
-            f"{base_currency}.json"
-        )
-
-
-        write_json_safely(
-            filepath,
-            api_response
-        )
-
-
+        filepath = os.path.join(OUTPUT_FOLDER, f"{base_currency}.json")
+        write_json_safely(filepath, api_response)
         generated += 1
-
-
-    # --------------------------------------------------------
-    # SUMMARY
-    # --------------------------------------------------------
 
     print()
     print("=" * 60)
-    print("UPDATE COMPLETED SUCCESSFULLY")
+    print("UPDATE COMPLETED")
     print("=" * 60)
-
-    print(
-        f"Fiat currencies   : {len(fiat_rates)}"
-    )
-
-    print(
-        f"Crypto currencies: {len(crypto_rates)}"
-    )
-
-    print(
-        f"Total currencies  : {len(all_rates)}"
-    )
-
-    print(
-        f"JSON files        : {generated}"
-    )
-
-    print(
-        f"Updated           : {current_time}"
-    )
-
+    print(f"Fiat source       : {fiat_source}")
+    print(f"Crypto source     : {crypto_source}")
+    print(f"Fiat currencies   : {len(fiat_rates)}")
+    print(f"Crypto currencies : {len(crypto_rates)}")
+    print(f"Total             : {len(all_rates)}")
+    print(f"JSON files        : {generated}")
+    print(f"Updated           : {current_time}")
     print("=" * 60)
 
 
