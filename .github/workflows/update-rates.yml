@@ -1,75 +1,57 @@
-name: Din Mein 6 Dafa Rate Update Karein
+name: Multi-Source Currency Rates Refresh
 
 on:
   schedule:
+    # Pakistan Time (UTC+5) roughly:
+    # 06:00, 09:00, 12:00, 15:00, 18:00, 21:00 PKT  → weekdays
+    - cron: "0 1 * * 1-5"   # 06:00 PKT
+    - cron: "0 4 * * 1-5"   # 09:00 PKT
+    - cron: "0 7 * * 1-5"   # 12:00 PKT
+    - cron: "0 10 * * 1-5"  # 15:00 PKT
+    - cron: "0 13 * * 1-5"  # 18:00 PKT
+    - cron: "0 16 * * 1-5"  # 21:00 PKT
 
-    # 05:30 AM Pakistan Time
-    - cron: "30 0 * * 1-5"
+    # Weekend: 2 times (crypto still useful)
+    - cron: "0 4 * * 0,6"   # 09:00 PKT Sat/Sun
+    - cron: "0 13 * * 0,6"  # 18:00 PKT Sat/Sun
 
-    # 08:00 AM Pakistan Time
-    - cron: "0 3 * * 1-5"
-
-    # 10:30 AM Pakistan Time
-    - cron: "30 5 * * 1-5"
-
-    # 01:00 PM Pakistan Time
-    - cron: "0 8 * * 1-5"
-
-    # 03:30 PM Pakistan Time
-    - cron: "30 10 * * 1-5"
-
-    # 06:00 PM Pakistan Time
-    - cron: "0 13 * * 1-5"
-
-  workflow_dispatch:
-
+  workflow_dispatch:   # Manual run button
 
 permissions:
   contents: write
 
-
 jobs:
-
   update-rates:
-
     runs-on: ubuntu-latest
 
     steps:
-
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v5
-
 
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests
 
+      - name: Update currency rates
+        run: python update_rates.py
 
-      - name: Update Currency Rates
+      - name: Commit and push
         run: |
-          python update_rates.py
-
-
-      - name: Commit And Push Updated Rates
-        run: |
-
-          git config user.name "Fawaz-v2-Bot"
-          git config user.email "bot@fawazv2.com"
+          git config user.name "Tayyab-Currency-Bot"
+          git config user.email "bot@tayyab-currency.local"
 
           git add v2/currencies/
 
           if git diff --cached --quiet; then
-            echo "No changes detected."
+            echo "No rate changes detected."
             exit 0
           fi
 
-          git commit -m "Automated currency rates update"
-
+          git commit -m "Automated multi-source currency rates update"
           git push
