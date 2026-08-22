@@ -11,8 +11,16 @@ from datetime import datetime, timezone
 OUTPUT_FOLDER = "v2/currencies"
 REQUEST_TIMEOUT = 15
 
-FIAT_PRIMARY_URL = "https://open.er-api.com/v6/latest/USD"
-FIAT_BACKUP_URL = "https://api.frankfurter.app/latest?from=USD"
+# Fawaz Ahmed Currency API
+FAWAZ_FIAT_URL = (
+    "https://cdn.jsdelivr.net/npm/"
+    "@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
+)
+
+# Backup Fawaz endpoint
+FAWAZ_BACKUP_URL = (
+    "https://latest.currency-api.pages.dev/v1/currencies/usd.json"
+)
 
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
@@ -52,21 +60,21 @@ BINANCE_MAPPING = {
 session = requests.Session()
 
 session.headers.update({
-    "User-Agent": "Fawaz-V2-Currency-Updater/2.0",
+    "User-Agent": "Tayyab-V2-Currency-Updater/2.0",
     "Accept": "application/json"
 })
 
 
 # ============================================================
-# FIAT - PRIMARY
+# FIAT - FAWAZ PRIMARY
 # ============================================================
 
 def fetch_fiat_primary():
 
-    print("Fetching Fiat from Primary...")
+    print("Fetching Fiat from Fawaz Ahmed API...")
 
     response = session.get(
-        FIAT_PRIMARY_URL,
+        FAWAZ_FIAT_URL,
         timeout=REQUEST_TIMEOUT
     )
 
@@ -74,55 +82,12 @@ def fetch_fiat_primary():
 
     data = response.json()
 
-    if data.get("result") != "success":
-        raise ValueError("Primary Fiat API returned an unsuccessful result.")
-
-    rates = data.get("rates")
+    rates = data.get("usd")
 
     if not isinstance(rates, dict) or not rates:
-        raise ValueError("Primary Fiat API returned empty rates.")
-
-    result = {}
-
-    for currency, rate in rates.items():
-
-        try:
-            rate = float(rate)
-        except (TypeError, ValueError):
-            continue
-
-        if rate > 0:
-            result[currency.lower()] = rate
-
-    result["usd"] = 1.0
-
-    if len(result) < 2:
-        raise ValueError("Primary Fiat API returned insufficient data.")
-
-    return result
-
-
-# ============================================================
-# FIAT - BACKUP
-# ============================================================
-
-def fetch_fiat_backup():
-
-    print("Fetching Fiat from Backup...")
-
-    response = session.get(
-        FIAT_BACKUP_URL,
-        timeout=REQUEST_TIMEOUT
-    )
-
-    response.raise_for_status()
-
-    data = response.json()
-
-    rates = data.get("rates")
-
-    if not isinstance(rates, dict) or not rates:
-        raise ValueError("Backup Fiat API returned empty rates.")
+        raise ValueError(
+            "Fawaz API returned empty USD rates."
+        )
 
     result = {
         "usd": 1.0
@@ -139,7 +104,55 @@ def fetch_fiat_backup():
             result[currency.lower()] = rate
 
     if len(result) < 2:
-        raise ValueError("Backup Fiat API returned insufficient data.")
+        raise ValueError(
+            "Fawaz API returned insufficient currency data."
+        )
+
+    return result
+
+
+# ============================================================
+# FIAT - FAWAZ BACKUP
+# ============================================================
+
+def fetch_fiat_backup():
+
+    print("Fetching Fiat from Fawaz Backup API...")
+
+    response = session.get(
+        FAWAZ_BACKUP_URL,
+        timeout=REQUEST_TIMEOUT
+    )
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    rates = data.get("usd")
+
+    if not isinstance(rates, dict) or not rates:
+        raise ValueError(
+            "Fawaz Backup API returned empty USD rates."
+        )
+
+    result = {
+        "usd": 1.0
+    }
+
+    for currency, rate in rates.items():
+
+        try:
+            rate = float(rate)
+        except (TypeError, ValueError):
+            continue
+
+        if rate > 0:
+            result[currency.lower()] = rate
+
+    if len(result) < 2:
+        raise ValueError(
+            "Fawaz Backup API returned insufficient data."
+        )
 
     return result
 
@@ -155,7 +168,7 @@ def fetch_fiat_data():
         rates = fetch_fiat_primary()
 
         print(
-            f"Primary Fiat successful: {len(rates)} currencies."
+            f"Fawaz Fiat successful: {len(rates)} currencies."
         )
 
         return rates
@@ -163,7 +176,7 @@ def fetch_fiat_data():
     except Exception as error:
 
         print(
-            f"Primary Fiat failed: {error}"
+            f"Fawaz Primary failed: {error}"
         )
 
 
@@ -172,7 +185,7 @@ def fetch_fiat_data():
         rates = fetch_fiat_backup()
 
         print(
-            f"Backup Fiat successful: {len(rates)} currencies."
+            f"Fawaz Backup successful: {len(rates)} currencies."
         )
 
         return rates
@@ -180,7 +193,7 @@ def fetch_fiat_data():
     except Exception as error:
 
         print(
-            f"Backup Fiat failed: {error}"
+            f"Fawaz Backup failed: {error}"
         )
 
     return None
@@ -241,12 +254,6 @@ def fetch_crypto_coingecko():
 
         if usd_price <= 0:
             continue
-
-        # CoinGecko:
-        # 1 coin = X USD
-        #
-        # Our format:
-        # 1 USD = X coin
 
         result[short_name] = round(
             1.0 / usd_price,
@@ -428,7 +435,8 @@ def write_json_safely(filepath, data):
 def main():
 
     print("=" * 60)
-    print("FAWAZ V2 CURRENCY RATE UPDATER")
+    print("TAYYAB V2 CURRENCY RATE UPDATER")
+    print("Powered by Fawaz Ahmed Currency API")
     print("=" * 60)
 
 
@@ -442,7 +450,7 @@ def main():
 
         print()
         print("CRITICAL ERROR")
-        print("Both Fiat APIs failed.")
+        print("Both Fawaz Fiat APIs failed.")
         print("Existing data will NOT be modified.")
         print()
 
@@ -570,7 +578,7 @@ def main():
     print("=" * 60)
 
     print(
-        f"Fiat currencies : {len(fiat_rates)}"
+        f"Fiat currencies   : {len(fiat_rates)}"
     )
 
     print(
@@ -578,15 +586,15 @@ def main():
     )
 
     print(
-        f"Total currencies : {len(all_rates)}"
+        f"Total currencies  : {len(all_rates)}"
     )
 
     print(
-        f"JSON files       : {generated}"
+        f"JSON files        : {generated}"
     )
 
     print(
-        f"Updated          : {current_time}"
+        f"Updated           : {current_time}"
     )
 
     print("=" * 60)
