@@ -1,0 +1,76 @@
+name: Din Mein 6 Dafa Rate Update Karein
+
+on:
+  schedule:
+
+    # 05:30 AM Pakistan Time
+    - cron: "30 0 * * 1-5"
+
+    # 08:00 AM Pakistan Time
+    - cron: "0 3 * * 1-5"
+
+    # 10:30 AM Pakistan Time
+    - cron: "30 5 * * 1-5"
+
+    # 01:00 PM Pakistan Time
+    - cron: "0 8 * * 1-5"
+
+    # 03:30 PM Pakistan Time
+    - cron: "30 10 * * 1-5"
+
+    # 06:00 PM Pakistan Time
+    - cron: "0 13 * * 1-5"
+
+  workflow_dispatch:
+
+
+permissions:
+  contents: write
+
+
+jobs:
+
+  update-rates:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+
+      - name: Update Currency Rates
+        run: |
+          python update_rates.py
+
+
+      - name: Commit And Push Updated Rates
+        run: |
+
+          git config user.name "Fawaz-v2-Bot"
+          git config user.email "bot@fawazv2.com"
+
+          git add v2/currencies/
+
+          if git diff --cached --quiet; then
+            echo "No changes detected."
+            exit 0
+          fi
+
+          git commit -m "Automated currency rates update"
+
+          git push
