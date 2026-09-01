@@ -1,6 +1,6 @@
 {
-    "date": "2026-08-31",
-    "last_updated": "2026-08-31 21:18 UTC",
+    "date": "2026-09-01",
+    "last_updated": "2026-09-01 06:01 UTC",
     "sources": {
         "fiat": "fawazahmed0/currency-api",
         "crypto": "coingecko"
@@ -9,7 +9,7 @@
         "usd": 1.3e-11,
         "1inch": 1.44e-10,
         "aave": 0.0,
-        "ada": 6.4e-11,
+        "ada": 6.2e-11,
         "aed": 4.6e-11,
         "afn": 8.26e-10,
         "akt": 2.5e-11,
@@ -89,7 +89,7 @@
         "dfi": 2.2087e-08,
         "djf": 2.259e-09,
         "dkk": 8.1e-11,
-        "doge": 1.52e-10,
+        "doge": 1.51e-10,
         "dop": 7.43e-10,
         "dot": 1.5e-11,
         "dydx": 1.17e-10,
