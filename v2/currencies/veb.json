@@ -1,9 +1,9 @@
 {
     "date": "2026-09-29",
-    "last_updated": "2026-09-29 06:34 UTC",
+    "last_updated": "2026-09-29 10:10 UTC",
     "sources": {
         "fiat": "fawazahmed0/currency-api",
-        "crypto": "coingecko"
+        "crypto": "none"
     },
     "veb": {
         "usd": 1.2e-11,
