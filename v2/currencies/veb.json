@@ -1,6 +1,6 @@
 {
     "date": "2026-10-21",
-    "last_updated": "2026-10-21 05:43 UTC",
+    "last_updated": "2026-10-21 08:54 UTC",
     "sources": {
         "fiat": "fawazahmed0/currency-api",
         "crypto": "coingecko"
@@ -335,7 +335,7 @@
         "xpd": 0.0,
         "xpf": 1.207e-09,
         "xpt": 0.0,
-        "xrp": 9e-12,
+        "xrp": 8e-12,
         "xtz": 3.6e-11,
         "yer": 2.683e-09,
         "zar": 1.86e-10,
