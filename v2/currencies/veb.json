@@ -1,6 +1,6 @@
 {
     "date": "2026-10-26",
-    "last_updated": "2026-10-26 16:41 UTC",
+    "last_updated": "2026-10-26 19:00 UTC",
     "sources": {
         "fiat": "fawazahmed0/currency-api",
         "crypto": "coingecko"
@@ -9,7 +9,7 @@
         "usd": 1.1e-11,
         "1inch": 1.29e-10,
         "aave": 0.0,
-        "ada": 5.6e-11,
+        "ada": 5.5e-11,
         "aed": 4.2e-11,
         "afn": 7.31e-10,
         "akt": 1.8e-11,
